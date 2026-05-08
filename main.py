@@ -425,25 +425,45 @@ def is_cloudflare_interstitial(sb) -> bool:
 
 def bypass_cloudflare_interstitial(sb, max_attempts=3) -> bool:
     logger.info("检测到 Cloudflare 整页挑战，尝试绕过...")
+
     for attempt in range(max_attempts):
         logger.info(f"CF 绕过尝试 {attempt+1}/{max_attempts}")
         try:
-            sb.uc_gui_click_captcha()
+            # 等待 Cloudflare 的验证 iframe 出现（通常 id 以 "cf-chl-widget-" 开头）
+            if not sb.execute_script(
+                "return !!document.querySelector('iframe[src*=\"challenges.cloudflare.com\"]');"
+            ):
+                # 如果没有 iframe，可能是未被加载，使用通用点击
+                sb.uc_gui_click_captcha()
+            else:
+                # 切换到 Cloudflare 的 iframe 并点击复选框
+                sb.switch_to_frame('iframe[src*="challenges.cloudflare.com"]')
+                # 等待复选框可点击
+                sb.wait_for_element_visible('input[type="checkbox"]', timeout=5)
+                sb.click('input[type="checkbox"]')
+                # 切回主页面
+                sb.switch_to_default_content()
+            
+            # 等待验证完成
             time.sleep(6)
             if not is_cloudflare_interstitial(sb):
                 logger.info("✅ Cloudflare 挑战已通过")
                 return True
         except Exception as e:
             logger.warning(f"CF 绕过失败: {e}")
+        
         time.sleep(3)
+
     logger.info("尝试刷新页面重试...")
-    try:
-        sb.uc_open_with_reconnect(LOGIN_URL, reconnect_time=10)
-        time.sleep(5)
-        if not is_cloudflare_interstitial(sb):
-            return True
-    except:
-        pass
+    for _ in range(2):   # 可以多刷新几次
+        try:
+            sb.uc_open_with_reconnect(LOGIN_URL, reconnect_time=10)
+            time.sleep(5)
+            if not is_cloudflare_interstitial(sb):
+                return True
+        except:
+            pass
+
     return False
 
 # ================== 获取服务器到期时间 ==================
